@@ -6,6 +6,8 @@
 //
 
 import UIKit
+import SwiftUI
+
 
 class ViewController: UIViewController {
     @IBOutlet private var table: UITableView!
@@ -19,17 +21,21 @@ class ViewController: UIViewController {
     
     private let cashedImages = NSCache<NSString, UIImage>()
     
-    let session = URLSession(configuration: URLSessionConfiguration.default)
-    
     override func viewDidLoad() {
         super.viewDidLoad()
         self.navigationItem.title = "Фильмы"
         
-        postImage(image: UIImage(systemName: "multiply.circle") ?? UIImage()) {
+        Server.postImage(image: UIImage(systemName: "multiply.circle") ?? UIImage()) {
             FilmSettings.noPosterId = $0
         }
         
-        getFilms(id: 1, cnt: 0)
+        DispatchQueue.global().async {
+            self.getFilms(id: 1, cnt: 0) {
+                let json = $0
+                self.addToData(name: json.data.movie.title, director: json.data.movie.director, year: String(json.data.movie.relise_date), rate: json.data.movie.rating, poster: json.data.movie.poster_id)
+                self.idSet.insert($1)
+            }
+        }
         
         refresh = UIRefreshControl()
         refresh.addTarget(self, action: #selector(onRefresh), for: .valueChanged)
@@ -40,52 +46,6 @@ class ViewController: UIViewController {
         table.refreshControl = refresh
     }
     
-    private func getFilms(id: Int, cnt: Int) {
-        if cnt > 100 {
-            return
-        }
-        if idSet.contains(id) {
-            getFilms(id: id+1, cnt: cnt)
-            return
-        }
-        let url = URL(string: "http://127.0.0.1:3131/movies/" + String(id))
-        var request = URLRequest(url: url!)
-        request.httpMethod = "GET"
-        request.addValue("Bearer I1eWeEjojeDmAI5Es6Tqso9mT6eo2ZO0ijkhA4qkSDdXDT61uYEsDt99eQQzwZvhNrJfjRXFq8iwoAsJBTmAhvS1yaFtdwFoTIYcMRgOxGKto87xP5eii0shcAY5z19gHukrbLQkOEpQjXHq1MFifaiYFfO8zAoLpdmq5po5QPUZxDuvDyn68SWLVtCP1l2CetzjfRrOwKnL5bsoR5AMFKEaoSLalLGmQeoRoIVAvXvGmuPSsjhqJo6qc3eTuiX", forHTTPHeaderField: "Authorization")
-        let task = self.session.dataTask(with: request) { (data, response, error) in
-            if let data = data {
-                do {
-                    let decoder = JSONDecoder()
-                    let json = try decoder.decode(FilmPostResponse.self, from: data)
-                    DispatchQueue.main.async {
-                        self.addToData(name: json.data.movie.title, director: json.data.movie.director, year: String(json.data.movie.relise_date), rate: json.data.movie.rating, poster: json.data.movie.poster_id)
-                        self.idSet.insert(id)
-                    }
-                    self.getFilms(id: id+1, cnt: cnt)
-                } catch {
-                    self.getFilms(id: id+1, cnt: cnt+1)
-                }
-            } else {
-                return
-            }
-        }
-        task.resume()
-    }
-    
-    private func getImage(id: String, completion: @escaping (UIImage) -> Void) {
-        let url = URL(string: "http://127.0.0.1:3131/image/" + id)
-        var request = URLRequest(url: url!)
-        request.httpMethod = "GET"
-        request.addValue("Bearer I1eWeEjojeDmAI5Es6Tqso9mT6eo2ZO0ijkhA4qkSDdXDT61uYEsDt99eQQzwZvhNrJfjRXFq8iwoAsJBTmAhvS1yaFtdwFoTIYcMRgOxGKto87xP5eii0shcAY5z19gHukrbLQkOEpQjXHq1MFifaiYFfO8zAoLpdmq5po5QPUZxDuvDyn68SWLVtCP1l2CetzjfRrOwKnL5bsoR5AMFKEaoSLalLGmQeoRoIVAvXvGmuPSsjhqJo6qc3eTuiX", forHTTPHeaderField: "Authorization")
-        let task = self.session.dataTask(with: request) { (data, response, error) in
-            if let data = data {
-                completion(UIImage(data: data) ?? UIImage())
-            } else {
-                return
-            }
-        }
-        task.resume()
-    }
 
     @IBAction func onButtonPress(_ sender: UIButton) {
         guard let film = UIStoryboard(name: "FilmController", bundle: nil).instantiateInitialViewController() as? FilmController else { return }
@@ -95,7 +55,11 @@ class ViewController: UIViewController {
     
     @objc
     private func onRefresh() {
-        getFilms(id: 1, cnt: 0)
+        getFilms(id: 1, cnt: 0) {
+            let json = $0
+            self.addToData(name: json.data.movie.title, director: json.data.movie.director, year: String(json.data.movie.relise_date), rate: json.data.movie.rating, poster: json.data.movie.poster_id)
+            self.idSet.insert($1)
+        }
         table.reloadData()
         self.refresh.endRefreshing()
     }
@@ -124,11 +88,48 @@ class ViewController: UIViewController {
             table.insertRows(at: [IndexPath(row: dataSource[index].films.count-1, section: index)], with: .fade)
         })
     }
+    
+    func getFilms(id: Int, cnt: Int, completion: @escaping (Server.FilmPostResponse, Int) -> Void) {
+        if cnt > 100 {
+            return
+        }
+        if idSet.contains(id) {
+            getFilms(id: id+1, cnt: cnt, completion: completion)
+            return
+        }
+        let url = URL(string: Server.filmsUrl + String(id))
+        var request = URLRequest(url: url!)
+        request.httpMethod = "GET"
+        request.addValue(Server.token, forHTTPHeaderField: "Authorization")
+        let task = Server.session.dataTask(with: request) { (data, response, error) in
+            if let data = data {
+                do {
+                    let decoder = JSONDecoder()
+                    let json = try decoder.decode(Server.FilmPostResponse.self, from: data)
+                    DispatchQueue.main.async {
+                        completion(json, id)
+                    }
+                    self.getFilms(id: id+1, cnt: cnt, completion: completion)
+                } catch {
+                    self.getFilms(id: id+1, cnt: cnt+1, completion: completion)
+                }
+            } else {
+                return
+            }
+        }
+        task.resume()
+    }
 }
 
 extension ViewController: UITableViewDelegate, UITableViewDataSource {
     func numberOfSections(in tableView: UITableView) -> Int {
         dataSource.count
+    }
+    
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let HC = UIHostingController(rootView: ContentView(film: dataSource[indexPath.section].films[indexPath.row], rv: self, index: indexPath))
+        self.navigationController?.pushViewController(HC, animated: true)
+        self.navigationController?.isNavigationBarHidden = true;
     }
     
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
@@ -147,11 +148,13 @@ extension ViewController: UITableViewDelegate, UITableViewDataSource {
         if let image = cashedImages.object(forKey: NSString(string: film.poster)) {
             cell.poster.image = image
         } else {
-            getImage(id: film.poster) {
-                let image = $0
-                DispatchQueue.main.async {
-                    self.cashedImages.setObject(image, forKey: film.poster as NSString)
-                    cell.poster.image = image
+            DispatchQueue.global().async {
+                Server.getImage(id: film.poster) {
+                    let image = $0
+                    DispatchQueue.main.async {
+                        self.cashedImages.setObject(image, forKey: film.poster as NSString)
+                        cell.poster.image = image
+                    }
                 }
             }
         }
@@ -169,12 +172,7 @@ extension ViewController: UITableViewDelegate, UITableViewDataSource {
         let action = UIContextualAction(style: .destructive, title: "Удалить") {
             _,_,_ in
             let inId = self.dataSource[indexPath.section].films[indexPath.row].id
-            let url = URL(string: "http://127.0.0.1:3131/movies/" + String(inId))
-            var request = URLRequest(url: url!)
-            request.httpMethod = "DELETE"
-            request.addValue("Bearer I1eWeEjojeDmAI5Es6Tqso9mT6eo2ZO0ijkhA4qkSDdXDT61uYEsDt99eQQzwZvhNrJfjRXFq8iwoAsJBTmAhvS1yaFtdwFoTIYcMRgOxGKto87xP5eii0shcAY5z19gHukrbLQkOEpQjXHq1MFifaiYFfO8zAoLpdmq5po5QPUZxDuvDyn68SWLVtCP1l2CetzjfRrOwKnL5bsoR5AMFKEaoSLalLGmQeoRoIVAvXvGmuPSsjhqJo6qc3eTuiX", forHTTPHeaderField: "Authorization")
-            let task = self.session.dataTask(with: request)
-            task.resume()
+            Server.deleteFilm(id: inId)
             
             self.table.performBatchUpdates({
                 self.dataSource[indexPath.section].films.remove(at: indexPath.row)
@@ -198,57 +196,19 @@ extension ViewController: UITableViewDelegate, UITableViewDataSource {
         100
     }
     
+    func changeRating(indexPath: IndexPath, rate: Int) {
+        self.dataSource[indexPath.section].films[indexPath.row].rate = rate
+        
+        table.reconfigureRows(at: [indexPath])
+    }
+    
+    func deselectFilm(index: IndexPath, animated: Bool) {
+        table.deselectRow(at: index, animated: animated)
+    }
     
 }
 
 extension ViewController: TableDelegate {
-    func postFilm(name: String, director: String, year: String, rate: Int, poster: String, completion: @escaping (Int) -> Void) {
-        let url = URL(string: "http://127.0.0.1:3131/movies/")
-        var request = URLRequest(url: url!)
-        let data = ["movie": [
-                "title": name,
-                "director": director,
-                "relise_date": Int(year) ?? 2000,
-                "rating": rate,
-                "poster_id": poster,
-                "created_at": Int(Date().timeIntervalSince1970)]]
-        request.httpMethod = "POST"
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.addValue("Bearer I1eWeEjojeDmAI5Es6Tqso9mT6eo2ZO0ijkhA4qkSDdXDT61uYEsDt99eQQzwZvhNrJfjRXFq8iwoAsJBTmAhvS1yaFtdwFoTIYcMRgOxGKto87xP5eii0shcAY5z19gHukrbLQkOEpQjXHq1MFifaiYFfO8zAoLpdmq5po5QPUZxDuvDyn68SWLVtCP1l2CetzjfRrOwKnL5bsoR5AMFKEaoSLalLGmQeoRoIVAvXvGmuPSsjhqJo6qc3eTuiX", forHTTPHeaderField: "Authorization")
-        let body = try! JSONSerialization.data(withJSONObject: data, options: [])
-        request.httpBody = body
-        var curId = 0
-        let task = session.dataTask(with: request) { (data, response, error) in
-            guard let data = data else {
-                return
-            }
-            let decoder = JSONDecoder()
-            let json = try! decoder.decode(FilmPostResponse.self, from: data)
-            curId = json.data.movie.id
-            completion(curId)
-        }
-        task.resume()
-    }
-    
-    func postImage(image: UIImage, completion: @escaping (String) -> Void) {
-        let url = URL(string: "http://127.0.0.1:3131/image/upload")
-        var request = URLRequest(url: url!)
-        let data = image.jpegData(compressionQuality: 1.0)
-        request.httpMethod = "POST"
-        request.addValue("image/jpeg", forHTTPHeaderField: "Content-Type")
-        request.addValue("Bearer I1eWeEjojeDmAI5Es6Tqso9mT6eo2ZO0ijkhA4qkSDdXDT61uYEsDt99eQQzwZvhNrJfjRXFq8iwoAsJBTmAhvS1yaFtdwFoTIYcMRgOxGKto87xP5eii0shcAY5z19gHukrbLQkOEpQjXHq1MFifaiYFfO8zAoLpdmq5po5QPUZxDuvDyn68SWLVtCP1l2CetzjfRrOwKnL5bsoR5AMFKEaoSLalLGmQeoRoIVAvXvGmuPSsjhqJo6qc3eTuiX", forHTTPHeaderField: "Authorization")
-        request.httpBody = data
-        let task = session.dataTask(with: request) { (data, response, error) in
-            guard let data = data else {
-                return
-            }
-            
-            let decoder = JSONDecoder()
-            let id = try! decoder.decode(ImagePostResponse.self, from: data).data.poster_id
-            completion(id)
-        }
-        task.resume()
-    }
     
     func addInformation(name: String, director: String, date: String, rate: Int, poster: String) {
         let year = date
@@ -264,7 +224,7 @@ extension ViewController: TableDelegate {
             table.insertRows(at: [IndexPath(row: dataSource[index].films.count-1, section: index)], with: .fade)
         })
         
-        postFilm(name: name, director: director, year: year, rate: rate, poster: poster) {
+        Server.postFilm(name: name, director: director, year: year, rate: rate, poster: poster) {
             self.dataSource[index].films[self.dataSource[index].films.count-1].id = $0
             self.idSet.insert($0)
         }
@@ -273,36 +233,4 @@ extension ViewController: TableDelegate {
 
 protocol TableDelegate: AnyObject {
     func addInformation(name: String, director: String, date: String, rate: Int, poster: String)
-    
-    func postImage(image: UIImage, completion: @escaping (String) -> Void)
-}
-
-struct InfoMovie: Codable {
-    let id: Int
-    let title: String
-    let director: String
-    let relise_date: Int
-    let rating: Int
-    let poster_id: String
-    let created_at: Int
-}
-
-struct MoviePostResponse: Codable {
-    let movie: InfoMovie
-}
-
-struct FilmPostResponse: Codable {
-    let error: Int
-    let message: String
-    let data: MoviePostResponse
-}
-
-struct ImageInfo: Codable {
-    let poster_id: String
-}
-
-struct ImagePostResponse: Codable {
-    let error: Int
-    let message: String
-    let data: ImageInfo
 }

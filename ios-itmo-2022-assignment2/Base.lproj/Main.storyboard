@@ -25,6 +25,9 @@
                             </tableView>
                             <button opaque="NO" contentMode="scaleToFill" contentHorizontalAlignment="center" contentVerticalAlignment="center" buttonType="system" lineBreakMode="middleTruncation" translatesAutoresizingMaskIntoConstraints="NO" id="0ki-bI-rzv">
                                 <rect key="frame" x="30" y="726" width="333" height="51"/>
+                                <constraints>
+                                    <constraint firstAttribute="height" constant="51" id="Ect-nZ-dmU"/>
+                                </constraints>
                                 <state key="normal" title="Button"/>
                                 <buttonConfiguration key="configuration" style="plain" title="Добавить">
                                     <backgroundConfiguration key="background" cornerRadius="20">

@@ -15,8 +15,6 @@ private func randomString(length: Int) -> String {
 }
 
 class FilmController: UIViewController {
-    let session = URLSession(configuration: URLSessionConfiguration.default)
-    
     var delegate: TableDelegate?
     
     private var allowedYears: [String] = [String]()
@@ -93,8 +91,8 @@ class FilmController: UIViewController {
             dateFilm.textField.text = date
         }
         
-        nameFilm.configureView(conf_label: "Название", conf_text: "Название фильма", minL: 1, maxL: 10)
-        directorFilm.configureView(conf_label: "Режиссёр", conf_text: "Режиссер фильма", minL: 3, maxL: 10)
+        nameFilm.configureView(conf_label: "Название", conf_text: "Название фильма", minL: 1, maxL: 20)
+        directorFilm.configureView(conf_label: "Режиссёр", conf_text: "Режиссер фильма", minL: 3, maxL: 20)
         dateFilm.configureView(conf_label: "Год", conf_text: "Год выпуска")
         
         view.addSubview(headline)
@@ -188,7 +186,7 @@ class FilmController: UIViewController {
     func addFilm() {
         var posterId: String = FilmSettings.noPosterId
         if let image = posterBack.image {
-            delegate?.postImage(image: image) {
+            Server.postImage(image: image) {
                 posterId = $0
                 
                 DispatchQueue.main.async {
